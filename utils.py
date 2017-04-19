@@ -8,7 +8,6 @@ import math
 def load_mnist(dataset_name):
 
     if dataset_name == 'mnist':
-
         data_dir = os.path.join("./data", dataset_name)
         fd = open(os.path.join(data_dir, 'train-images-idx3-ubyte'))
         loaded = np.fromfile(file=fd , dtype=np.uint8)
@@ -39,7 +38,6 @@ def load_mnist(dataset_name):
         np.random.shuffle(y)
 
         #convert label to one-hot
-
         y_vec = np.zeros((len(y), 10), dtype=np.float)
         for i, label in enumerate(y):
             y_vec[i, int(y[i])] = 1.0
