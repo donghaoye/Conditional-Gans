@@ -19,14 +19,14 @@ import numpy as np
 learning_rate = 0.0002
 batch_size = 64
 EPOCH = 5
-display_step = 1
+display_step = 5
 sample_size = 100
 y_dim = 10
 channel = 1
 
 
 def getNext_batch(rand , input , data_y , batch_num):
-    return input[rand + (batch_num)*batch_size : rand + (batch_num  + 1)*batch_size] \
+    return input[rand + (batch_num)*batch_size : rand + (batch_num + 1)*batch_size] \
         , data_y[rand + (batch_num)*batch_size : rand + (batch_num + 1)*batch_size]
 
 def dcgan(operation , data_name , output_size , sample_path , log_dir , model_path , visua_path , sample_num = 64):
@@ -91,12 +91,11 @@ def dcgan(operation , data_name , output_size , sample_path , log_dir , model_pa
         saver = tf.train.Saver()
         #if train
         if operation == 0:
-            init = tf.global_variables_initializer()
-            config = tf.ConfigProto()
-            config.gpu_options.allow_growth = True
             opti_D = tf.train.AdamOptimizer(learning_rate=learning_rate , beta1=0.5).minimize(D_loss , var_list=d_var)
             opti_G = tf.train.AdamOptimizer(learning_rate=learning_rate , beta1=0.5).minimize(G_loss , var_list=g_var)
-
+            init = tf.global_variables_initializer() # 这句要在所有变量之后
+            config = tf.ConfigProto()
+            config.gpu_options.allow_growth = True
             with tf.Session(config=config) as sess:
                 sess.run(init)
                 summary_writer = tf.summary.FileWriter(log_dir , graph=sess.graph)
@@ -104,8 +103,8 @@ def dcgan(operation , data_name , output_size , sample_path , log_dir , model_pa
                 step = 0        #每个batch的步长
                 e = 0           #epoch个数
                 while e <= EPOCH:
-                    rand = np.random.randint(0 , 100)
-                    # rand = 0
+                    #rand = np.random.randint(0, 100)
+                    rand = 0
                     while batch_num < len(data_array) / batch_size:
                         step = step + 1
                         realbatch_array , real_labels = getNext_batch(rand , data_array , data_y , batch_num)
@@ -124,9 +123,9 @@ def dcgan(operation , data_name , output_size , sample_path , log_dir , model_pa
                         summary_writer.add_summary(summary_str_D , step)
                         summary_writer.add_summary(summary_str_G , step)
                         if step % display_step == 0:
-                            D_loss = sess.run(D_loss , feed_dict = {images:realbatch_array , z:batch_z , y:real_labels})
-                            fake_loss = sess.run(G_loss , feed_dict = {z: batch_z , y:real_labels})
-                            print("EPOCH %d step %d: D: loss = %.7f G: loss=%.7f " % (e , step , D_loss , fake_loss))
+                            D_loss_result = sess.run(D_loss , feed_dict = {images:realbatch_array , z:batch_z , y:real_labels})
+                            G_loss_result = sess.run(G_loss , feed_dict = {z: batch_z , y:real_labels})
+                            print("EPOCH %d step %d: D: loss = %.7f G: loss=%.7f " % (e , step , D_loss_result , G_loss_result))
                         if np.mod(step , 50) == 1:
                             sample_images = sess.run(sample_img , feed_dict={z:sample_z , y:sample_label()})
                             save_images(sample_images , [8 , 8] , './{}/train_{:02d}_{:04d}.png'.format(sample_path , e , step))
@@ -138,7 +137,7 @@ def dcgan(operation , data_name , output_size , sample_path , log_dir , model_pa
 
         #test
         elif operation == 1:
-            init = tf.initialize_all_variables()
+            init = tf.global_variables_initializer()
             with tf.Session() as sess:
                 sess.run(init)
                 saver.restore(sess , model_path)
@@ -153,7 +152,7 @@ def dcgan(operation , data_name , output_size , sample_path , log_dir , model_pa
 
         #visualize
         else:
-            init = tf.initialize_all_variables()
+            init = tf.global_variables_initializer()
             with tf.Session() as sess:
                 sess.run(init)
                 saver.restore(sess, model_path)
@@ -172,10 +171,11 @@ def dcgan(operation , data_name , output_size , sample_path , log_dir , model_pa
 generate network
 """
 weights2 = {
-    'wd': tf.Variable(tf.random_normal([sample_size + y_dim , 1024] , stddev=0.02) , name='genw1') ,
-    'wc1': tf.Variable(tf.random_normal([1024 + y_dim , 7*7*2*64], stddev=0.02) , name='genw2'),
-    'wc2': tf.Variable(tf.random_normal([5 , 5 , 128 ,  138], stddev=0.02) , name='genw3'),
-    'wc3': tf.Variable(tf.random_normal([5 , 5 , channel ,  138], stddev=0.02) , name='genw4') ,
+    'wd': tf.Variable(tf.random_normal([sample_size + y_dim , 1024], stddev=0.02) , name='genw1') ,
+    'wc1': tf.Variable(tf.random_normal([1024 + y_dim, 7*7*2*64], stddev=0.02), name='genw2'),
+    'wc1': tf.Variable(tf.random_normal([1024 + y_dim, 7*7*2*64], stddev=0.02), name='genw2'),
+    'wc2': tf.Variable(tf.random_normal([5 , 5 , 128 ,  138], stddev=0.02), name='genw3'),
+    'wc3': tf.Variable(tf.random_normal([5 , 5 , channel ,  138], stddev=0.02), name='genw4') ,
 
 }
 
@@ -259,10 +259,10 @@ biases = {
 }
 
 def dis_net(data_array , y , weights , biases , reuse=False):
-    # concat
-    data_array = conv_cond_concat(data_array , yb)
     # mnist data's shape is (28 , 28 , 1)
     yb = tf.reshape(y , shape=[batch_size, 1 , 1 , y_dim])
+    # concat
+    data_array = conv_cond_concat(data_array, yb)
 
     conv1 = conv2d(data_array , weights['wc1'] , biases['bc1'])
     conv1 = lrelu(conv1)
