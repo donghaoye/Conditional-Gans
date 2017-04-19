@@ -1,3 +1,4 @@
+#-*- coding: UTF-8 -*-
 from utils import load_mnist
 from utils import save_images
 from utils import vis_square
