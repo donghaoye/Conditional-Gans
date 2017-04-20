@@ -174,7 +174,6 @@ generate network
 weights2 = {
     'wd': tf.Variable(tf.random_normal([sample_size + y_dim, 1024], stddev=0.02), name='genw1'),
     'wc1': tf.Variable(tf.random_normal([1024 + y_dim, 7*7*2*64], stddev=0.02), name='genw2'),
-    'wc1': tf.Variable(tf.random_normal([1024 + y_dim, 7*7*2*64], stddev=0.02), name='genw2'),
     'wc2': tf.Variable(tf.random_normal([5, 5, 128,  138], stddev=0.02), name='genw3'),
     'wc3': tf.Variable(tf.random_normal([5, 5, channel,  138], stddev=0.02), name='genw4'),
 
