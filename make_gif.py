@@ -8,11 +8,11 @@ from utils import read_image_list
 def getShapeForData(filenames):
 
     array = [Image.open(batch_file) for batch_file in filenames]
-    #return sub_image_mean(array , IMG_CHANNEL)
+    #return sub_image_mean(array, IMG_CHANNEL)
 
     return array
 
-##get the numpy array of images from the path from image
+# get the numpy array of images from the path from image
 def GetImage(image_path):
 
     #Get the images from the path of image
@@ -23,7 +23,7 @@ def GetImage(image_path):
 
     return image_array
 
-def compare(x , y):
+def compare(x, y):
     stat_x = os.stat(x)
     stat_y = os.stat(y)
     if stat_x.st_ctime < stat_y.st_ctime:
@@ -34,7 +34,7 @@ def compare(x , y):
         return 0
 
 def make_gif(images):
-    writeGif('result.gif' , images , duration=0.5)
+    writeGif('result.gif', images, duration=0.5)
 
 #Run
 image_path = './gif_images/'
