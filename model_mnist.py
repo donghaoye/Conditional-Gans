@@ -1,10 +1,10 @@
 #-*- coding: UTF-8 -*-
+import cv2
+
 from utils import load_mnist
 from utils import save_images
 from utils import vis_square
 from utils import sample_label
-
-import cv2
 
 from ops import conv2d
 from ops import lrelu
@@ -146,8 +146,9 @@ def dcgan(operation , data_name , output_size , sample_path , log_dir , model_pa
                 save_images(output , [8 , 8] , './{}/test{:02d}_{:04d}.png'.format(sample_path , 0 , 0))
 
                 image = cv2.imread('./{}/test{:02d}_{:04d}.png'.format(sample_path , 0 , 0) , 0)
-                cv2.imshow( "test" , image)
+                cv2.imshow( "test", image)
                 cv2.waitKey(-1)
+                print('./{}/test{:02d}_{:04d}.png'.format(sample_path , 0 , 0))
                 print("Test finish!")
 
         #visualize
