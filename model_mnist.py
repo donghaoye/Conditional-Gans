@@ -5,6 +5,7 @@ from utils import load_mnist
 from utils import save_images
 from utils import vis_square
 from utils import sample_label
+from utils import get_image_celebA
 
 from ops import conv2d
 from ops import lrelu
@@ -13,6 +14,9 @@ from ops import fully_connect
 from ops import conv_cond_concat
 from ops import batch_normal
 
+from glob import glob
+
+import os
 import tensorflow as tf
 import numpy as np
 
@@ -30,143 +34,160 @@ def getNext_batch(rand, input, data_y, batch_num):
        , data_y[rand + (batch_num)*batch_size : rand + (batch_num + 1)*batch_size]
 
 def dcgan(operation, data_name, output_size, sample_path, log_dir, model_path, visua_path, sample_num = 64):
-    if data_name ==  "mnist":
+    global data_array, data_y
+    if data_name == "mnist":
         data_array, data_y = load_mnist(data_name)
-        sample_z = np.random.uniform(-1, 1, size = [sample_num, 100])
-
-        y = tf.placeholder(tf.float32, [None, y_dim])
-        z = tf.placeholder(tf.float32, [None, sample_size])
-        images = tf.placeholder(tf.float32, [batch_size, output_size, output_size, channel])
-
-        fake_images = gern_net(batch_size, z, y,  output_size)
-        sample_img = sample_net(sample_num, z, y, output_size)
-
-        """
-        the loss of gerenate network 
-        tf.zeros_like, tf.ones_like生成0和1的矩阵
-        discriminator: real images are labelled as 1
-        discriminator: images from generator (fake) are labelled as 0
-        generator: try to make the the fake images look real (1)
-        sigmoid_cross_entropy_with_logits：可以对比1和(x,y)经过sigmoid后得出的概率，这里扩充多维。（某某分布属于标签1(0)的概率）
-        """
-        D_pro, D_logits = dis_net(images, y,  weights, biases, False)
-        G_pro, G_logits = dis_net(fake_images, y,  weights, biases, True)
-        D_real_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(D_pro), logits=D_logits))
-        D_fake_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(G_pro), logits=G_logits))
-        # 判别器的loss，能分真和假 --> ones_like(D_pro) 和 zeros_like(G_pro)
-        D_loss = D_real_loss + D_fake_loss
-        # 生成器的loss，能生成逼真的图片 --> ones_like(G_pro)
-        G_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(G_pro),logits=G_logits))
-        """
-        公式表示的是：
-        对于判别器D : max --> E(log(D(x))) + E(log(1 - D(G(z))))  代码是 ones_like(D_pro) + zeros_like(G_pro)
-        对于判别器D : min -->                E(log(1 - D(G(z))))  等价于 max --> log(D(G(Z))) 代码是ones_like(G_pro)
-        2014GAN论文原话：We train D to maximize the probability of assigning the correct label to 
-        both training examples and samples from G. We simultaneously train G to minimize log(1-D(G(Z))).
-        D是max能正确区分标签的概率【max --> E(log(D(x))) + E(log(1 - D(G(z))))】，也就要使loss在训练不断最小，（这里的Max和Min代表的含义是不一样的）
-        同时也让G尽量去混淆它，也就是min E(log(1 - D(G(z)))) 用 max log(D(G(Z))) 替代。
-        ....
-        Rather than training G to minimize log(1 - D(G(z))), we can train G to maximize log(D(G(Z)))
-        """
-
-
-        """
-        tf.summary.histogram, tf.summary.scalar可视化显示
-        merge 合并在一起显示
-        """
-        z_sum = tf.summary.histogram("z", z)
-        G_image = tf.summary.image("G_out", fake_images)
-        D_pro_sum = tf.summary.histogram("D_pro", D_pro)
-        G_pro_sum = tf.summary.histogram("G_pro", G_pro)
-        loss_sum = tf.summary.scalar("D_loss", D_loss)
-        G_loss_sum = tf.summary.scalar("G_loss", G_loss)
-        merged_summary_op_d = tf.summary.merge([loss_sum, D_pro_sum])
-        merged_summary_op_g = tf.summary.merge([G_loss_sum, G_pro_sum, G_image, z_sum])
-
-        t_vars = tf.trainable_variables()
-        d_var = [var for var in t_vars if 'dis' in var.name]
-        g_var = [var for var in t_vars if 'gen' in var.name]
-
-        #定义保存模型变量
-        saver = tf.train.Saver()
-        #if train
-        if operation == 0:
-            opti_D = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.5).minimize(D_loss, var_list=d_var)
-            opti_G = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.5).minimize(G_loss, var_list=g_var)
-            init = tf.global_variables_initializer() # 这句要在所有变量之后
-            config = tf.ConfigProto()
-            config.gpu_options.allow_growth = True
-            with tf.Session(config=config) as sess:
-                sess.run(init)
-                summary_writer = tf.summary.FileWriter(log_dir, graph=sess.graph)
-                batch_num = 0   #每次一批，就是控制一批一批的范围
-                step = 0        #每个batch的步长
-                e = 0           #epoch个数
-                while e <= EPOCH:
-                    #rand = np.random.randint(0, 100)
-                    rand = 0
-                    while batch_num < len(data_array) / batch_size:
-                        step = step + 1
-                        realbatch_array, real_labels = getNext_batch(rand, data_array, data_y, batch_num)
-                        batch_z = np.random.uniform(-1, 1, size=[batch_size, sample_size])
-                        # batch_z = np.random.normal(0, 0.2, size=[batch_size, sample_size])
-                        _, summary_str_D = sess.run([opti_D, merged_summary_op_d],
-                                                    feed_dict={images:realbatch_array, z:batch_z, y:real_labels})
-                        _, summary_str_G = sess.run([opti_G, merged_summary_op_g],
-                                                    feed_dict={z: batch_z, y: real_labels})
-                        batch_num += 1
-                        # average_loss += loss_value
-
-                        """
-                        写日志和打印必要信息
-                        """
-                        summary_writer.add_summary(summary_str_D, step)
-                        summary_writer.add_summary(summary_str_G, step)
-                        if step % display_step == 0:
-                            D_loss_result = sess.run(D_loss, feed_dict = {images:realbatch_array, z:batch_z, y:real_labels})
-                            G_loss_result = sess.run(G_loss, feed_dict = {z: batch_z, y:real_labels})
-                            print("EPOCH %d step %d: D: loss = %.7f G: loss=%.7f " % (e, step, D_loss_result, G_loss_result))
-                        if np.mod(step, 50) == 1:
-                            sample_images = sess.run(sample_img, feed_dict={z:sample_z, y:sample_label()})
-                            save_images(sample_images, [8, 8], './{}/train_{:02d}_{:04d}.png'.format(sample_path, e, step))
-                            #save_path = saver.save(sess, model_path)
-                    e = e + 1
-                    batch_num = 0
-                save_path = saver.save(sess, model_path)
-                print("Model saved in file: %s" % save_path)
-
-        #test
-        elif operation == 1:
-            init = tf.global_variables_initializer()
-            with tf.Session() as sess:
-                sess.run(init)
-                saver.restore(sess, model_path)
-                sample_z = np.random.uniform(1, -1, size=[sample_num, 100])
-                output = sess.run(sample_img, feed_dict={z:sample_z, y:sample_label()})
-                save_images(output, [8, 8], './{}/test{:02d}_{:04d}.png'.format(sample_path, 0, 0))
-
-                image = cv2.imread('./{}/test{:02d}_{:04d}.png'.format(sample_path, 0, 0), 0)
-                cv2.imshow( "test", image)
-                cv2.waitKey(-1)
-                print('./{}/test{:02d}_{:04d}.png'.format(sample_path, 0, 0))
-                print("Test finish!")
-
-        #visualize
-        else:
-            init = tf.global_variables_initializer()
-            with tf.Session() as sess:
-                sess.run(init)
-                saver.restore(sess, model_path)
-
-                # visualize the weights 1 or you can change weights_2 .
-                conv_weights = sess.run([tf.get_collection('weight_2')])
-                vis_square(visua_path, conv_weights[0][0].transpose(3, 0, 1, 2), type=1)
-
-                # visualize the activation 1
-                ac = sess.run([tf.get_collection('ac_2')], feed_dict={images: data_array[:64], z:sample_z, y:sample_label()})
-                vis_square(visua_path, ac[0][0].transpose(3, 1, 2, 0), type=0)
+        print("mnist")
+    elif data_name == "celebA":
+        print("celebA")
+        data = glob(os.path.join("./data", "img_align_celeba", "*.jpg"))
+        sample_files = data[0:64]
+        sample = [get_image_celebA(sample_file,
+                             input_height=108, input_width=108,
+                             resize_height=28, resize_width=28,
+                             is_crop=False, is_grayscale=False) for sample_file in sample_files]
+        #sample = tf.reshape(sample, [-1, 28, 28, 1])
+        data_array = np.array(sample).astype(np.float32)
+        data_y = np.zeros(len(data_array))
     else:
         print("other dataset!")
+
+    #print(len(data_array))
+    #print("++++++++++++++++++++++++++++++++++++++++++++++")
+
+    sample_z = np.random.uniform(-1, 1, size = [sample_num, 100])
+
+    y = tf.placeholder(tf.float32, [None, y_dim])
+    z = tf.placeholder(tf.float32, [None, sample_size])
+    images = tf.placeholder(tf.float32, [batch_size, output_size, output_size, channel])
+
+    fake_images = gern_net(batch_size, z, y,  output_size)
+    sample_img = sample_net(sample_num, z, y, output_size)
+
+    """
+    the loss of gerenate network 
+    tf.zeros_like, tf.ones_like生成0和1的矩阵
+    discriminator: real images are labelled as 1
+    discriminator: images from generator (fake) are labelled as 0
+    generator: try to make the the fake images look real (1)
+    sigmoid_cross_entropy_with_logits：可以对比1和(x,y)经过sigmoid后得出的概率，这里扩充多维。（某某分布属于标签1(0)的概率）
+    """
+    D_pro, D_logits = dis_net(images, y,  weights, biases, False)
+    G_pro, G_logits = dis_net(fake_images, y,  weights, biases, True)
+    D_real_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(D_pro), logits=D_logits))
+    D_fake_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(G_pro), logits=G_logits))
+    # 判别器的loss，能分真和假 --> ones_like(D_pro) 和 zeros_like(G_pro)
+    D_loss = D_real_loss + D_fake_loss
+    # 生成器的loss，能生成逼真的图片 --> ones_like(G_pro)
+    G_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(G_pro),logits=G_logits))
+    """
+    公式表示的是：
+    对于判别器D : max --> E(log(D(x))) + E(log(1 - D(G(z))))  代码是 ones_like(D_pro) + zeros_like(G_pro)
+    对于判别器D : min -->                E(log(1 - D(G(z))))  等价于 max --> log(D(G(Z))) 代码是ones_like(G_pro)
+    2014GAN论文原话：We train D to maximize the probability of assigning the correct label to 
+    both training examples and samples from G. We simultaneously train G to minimize log(1-D(G(Z))).
+    D是max能正确区分标签的概率【max --> E(log(D(x))) + E(log(1 - D(G(z))))】，也就要使loss在训练不断最小，（这里的Max和Min代表的含义是不一样的）
+    同时也让G尽量去混淆它，也就是min E(log(1 - D(G(z)))) 用 max log(D(G(Z))) 替代。
+    ....
+    Rather than training G to minimize log(1 - D(G(z))), we can train G to maximize log(D(G(Z)))
+    """
+
+
+    """
+    tf.summary.histogram, tf.summary.scalar可视化显示
+    merge 合并在一起显示
+    """
+    z_sum = tf.summary.histogram("z", z)
+    G_image = tf.summary.image("G_out", fake_images)
+    D_pro_sum = tf.summary.histogram("D_pro", D_pro)
+    G_pro_sum = tf.summary.histogram("G_pro", G_pro)
+    loss_sum = tf.summary.scalar("D_loss", D_loss)
+    G_loss_sum = tf.summary.scalar("G_loss", G_loss)
+    merged_summary_op_d = tf.summary.merge([loss_sum, D_pro_sum])
+    merged_summary_op_g = tf.summary.merge([G_loss_sum, G_pro_sum, G_image, z_sum])
+
+    t_vars = tf.trainable_variables()
+    d_var = [var for var in t_vars if 'dis' in var.name]
+    g_var = [var for var in t_vars if 'gen' in var.name]
+
+    #定义保存模型变量
+    saver = tf.train.Saver()
+    #if train
+    if operation == 0:
+        opti_D = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.5).minimize(D_loss, var_list=d_var)
+        opti_G = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.5).minimize(G_loss, var_list=g_var)
+        init = tf.global_variables_initializer() # 这句要在所有变量之后
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        with tf.Session(config=config) as sess:
+            sess.run(init)
+            summary_writer = tf.summary.FileWriter(log_dir, graph=sess.graph)
+            batch_num = 0   #每次一批，就是控制一批一批的范围
+            step = 0        #每个batch的步长
+            e = 0           #epoch个数
+            while e <= EPOCH:
+                #rand = np.random.randint(0, 100)
+                rand = 0
+                while batch_num < len(data_array) / batch_size:
+                    step = step + 1
+                    realbatch_array, real_labels = getNext_batch(rand, data_array, data_y, batch_num)
+                    batch_z = np.random.uniform(-1, 1, size=[batch_size, sample_size])
+                    # batch_z = np.random.normal(0, 0.2, size=[batch_size, sample_size])
+                    _, summary_str_D = sess.run([opti_D, merged_summary_op_d],
+                                                feed_dict={images:realbatch_array, z:batch_z, y:real_labels})
+                    _, summary_str_G = sess.run([opti_G, merged_summary_op_g],
+                                                feed_dict={z: batch_z, y: real_labels})
+                    batch_num += 1
+                    # average_loss += loss_value
+
+                    """
+                    写日志和打印必要信息
+                    """
+                    summary_writer.add_summary(summary_str_D, step)
+                    summary_writer.add_summary(summary_str_G, step)
+                    if step % display_step == 0:
+                        D_loss_result = sess.run(D_loss, feed_dict = {images:realbatch_array, z:batch_z, y:real_labels})
+                        G_loss_result = sess.run(G_loss, feed_dict = {z: batch_z, y:real_labels})
+                        print("EPOCH %d step %d: D: loss = %.7f G: loss=%.7f " % (e, step, D_loss_result, G_loss_result))
+                    if np.mod(step, 50) == 1:
+                        sample_images = sess.run(sample_img, feed_dict={z:sample_z, y:sample_label()})
+                        save_images(sample_images, [8, 8], './{}/train_{:02d}_{:04d}.png'.format(sample_path, e, step))
+                        #save_path = saver.save(sess, model_path)
+                e = e + 1
+                batch_num = 0
+            save_path = saver.save(sess, model_path)
+            print("Model saved in file: %s" % save_path)
+
+    #test
+    elif operation == 1:
+        init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(init)
+            saver.restore(sess, model_path)
+            sample_z = np.random.uniform(1, -1, size=[sample_num, 100])
+            output = sess.run(sample_img, feed_dict={z:sample_z, y:sample_label()})
+            save_images(output, [8, 8], './{}/test{:02d}_{:04d}.png'.format(sample_path, 0, 0))
+
+            image = cv2.imread('./{}/test{:02d}_{:04d}.png'.format(sample_path, 0, 0), 0)
+            cv2.imshow( "test", image)
+            cv2.waitKey(-1)
+            print('./{}/test{:02d}_{:04d}.png'.format(sample_path, 0, 0))
+            print("Test finish!")
+
+    #visualize
+    else:
+        init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(init)
+            saver.restore(sess, model_path)
+
+            # visualize the weights 1 or you can change weights_2 .
+            conv_weights = sess.run([tf.get_collection('weight_2')])
+            vis_square(visua_path, conv_weights[0][0].transpose(3, 0, 1, 2), type=1)
+
+            # visualize the activation 1
+            ac = sess.run([tf.get_collection('ac_2')], feed_dict={images: data_array[:64], z:sample_z, y:sample_label()})
+            vis_square(visua_path, ac[0][0].transpose(3, 1, 2, 0), type=0)
 
 """
 generate network
@@ -209,7 +230,7 @@ def gern_net(batch_size, z, y, output_size):
     d3 = tf.nn.relu(d3)
     d3 = conv_cond_concat(d3, yb)
 
-    d4 = de_conv(d3, weights2['wc3'], biases2['bc3'], out_shape=[batch_size, output_size, output_size, 1])
+    d4 = de_conv(d3, weights2['wc3'], biases2['bc3'], out_shape=[batch_size, output_size, output_size, channel])
 
     return tf.nn.sigmoid(d4)
 
@@ -236,7 +257,7 @@ def sample_net(batch_size, z, y, output_size):
     d3 = tf.nn.relu(d3)
     d3 = conv_cond_concat(d3, yb)
 
-    d4 = de_conv(d3, weights2['wc3'], biases2['bc3'], out_shape=[batch_size, output_size, output_size, 1])
+    d4 = de_conv(d3, weights2['wc3'], biases2['bc3'], out_shape=[batch_size, output_size, output_size, channel])
 
     return tf.nn.sigmoid(d4)
 
@@ -260,10 +281,11 @@ biases = {
 
 def dis_net(data_array, y, weights, biases, reuse=False):
     # mnist data's shape is (28, 28, 1)
-    yb = tf.reshape(y, shape=[batch_size, 1, 1, y_dim])
-    # concat
+    yb = tf.reshape(y, shape=[batch_size, channel, channel, y_dim])
     data_array = conv_cond_concat(data_array, yb)
 
+    print("-------------")
+    print(data_array.get_shape())
     conv1 = conv2d(data_array, weights['wc1'], biases['bc1'])
     conv1 = lrelu(conv1)
     conv1 = conv_cond_concat(conv1, yb)
