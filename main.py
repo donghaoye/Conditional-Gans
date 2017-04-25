@@ -3,7 +3,7 @@ import tensorflow as tf
 import os
 
 flags = tf.app.flags
-flags.DEFINE_string("dataset", "mnist", "the dataset for read images")
+flags.DEFINE_string("dataset", "celebA", "the dataset for read images")
 flags.DEFINE_string("sample_dir", "samples_for_test", "the dir of sample images")
 flags.DEFINE_integer("output_size", 28, "the size of generate image")
 flags.DEFINE_string("log_dir", "/tmp/tensorflow_mnist", "the path of tensorflow's log")

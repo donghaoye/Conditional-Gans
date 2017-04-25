@@ -8,6 +8,7 @@ from utils import sample_label
 from utils import get_image_celebA
 
 from ops import conv2d
+from ops import conv3d
 from ops import lrelu
 from ops import de_conv
 from ops import fully_connect
@@ -266,7 +267,9 @@ discriminent_net
 """
 weights = {
     'wc1': tf.Variable(tf.random_normal([5, 5, 11, 10], stddev=0.02), name='dis_w1'),
+    'wc1_1': tf.Variable(tf.random_normal([5, 5, 13, 10], stddev=0.02), name='dis_w1_1'),
     'wc2': tf.Variable(tf.random_normal([5, 5, 20, 64], stddev=0.02), name='dis_w2'),
+    'wc2_1': tf.Variable(tf.random_normal([5, 5, 20, 64], stddev=0.02), name='dis_w2'),
     'wc3': tf.Variable(tf.random_normal([64*7*7 + y_dim, 1024], stddev=0.02), name='dis_w3'),
     'wd' : tf.Variable(tf.random_normal([1024 + y_dim, channel], stddev=0.02), name='dis_w4')
 }
@@ -281,16 +284,22 @@ biases = {
 
 def dis_net(data_array, y, weights, biases, reuse=False):
     # mnist data's shape is (28, 28, 1)
-    yb = tf.reshape(y, shape=[batch_size, channel, channel, y_dim])
+    yb = tf.reshape(y, shape=[batch_size, 1, 1, y_dim])
     data_array = conv_cond_concat(data_array, yb)
 
     print("-------------")
     print(data_array.get_shape())
-    conv1 = conv2d(data_array, weights['wc1'], biases['bc1'])
+    if channel == 1:
+        conv1 = conv2d(data_array, weights['wc1'], biases['bc1'])
+    else:
+        conv1 = conv3d(data_array, weights['wc1_1'], biases['bc1'])
     conv1 = lrelu(conv1)
     conv1 = conv_cond_concat(conv1, yb)
 
-    conv2 = conv2d(conv1, weights['wc2'] , biases['bc2'])
+    if (channel == 1):
+        conv2 = conv2d(conv1, weights['wc2'] , biases['bc2'])
+    else:
+        conv2 = conv3d(conv1, weights['wc2_1'], biases['bc2'])
     conv2 = batch_normal(conv2, scope="dis_bn1", reuse=reuse)
     conv2 = lrelu(conv2)
     conv2 = tf.reshape(conv2, [batch_size, -1])
